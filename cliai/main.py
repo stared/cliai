@@ -47,9 +47,18 @@ def chat_command(
             help="Initial system message",
         ),
     ] = None,
+    continue_conversation: Annotated[
+        bool,
+        typer.Option(
+            "--continue",
+            "-c",
+            help="Continue the previous conversation instead of starting a new one",
+        ),
+    ] = False,
 ) -> None:
     """Start a chat session with an AI model."""
-    asyncio.run(_chat_async(model, system))
+    # Default is to start a new conversation, unless --continue is specified
+    asyncio.run(_chat_async(model, system, not continue_conversation))
 
 
 @app.command("models")
@@ -75,12 +84,15 @@ def models_command() -> None:
     console.print(table)
 
 
-async def _chat_async(model_id: Optional[str] = None, system_message: Optional[str] = None) -> None:
+async def _chat_async(
+    model_id: Optional[str] = None, system_message: Optional[str] = None, new: bool = False
+) -> None:
     """Run the chat interface asynchronously.
 
     Args:
         model_id: Optional model ID to use
         system_message: Optional system message
+        new: Whether to start a new conversation
     """
     try:
         # Select the model to use
@@ -90,7 +102,7 @@ async def _chat_async(model_id: Optional[str] = None, system_message: Optional[s
         service = get_service_for_model(model_config)
 
         # Create the chat interface
-        chat = ChatInterface(model_config, service)
+        chat = ChatInterface(model_config, service, new_conversation=new)
 
         # Set custom system message if provided
         if system_message:

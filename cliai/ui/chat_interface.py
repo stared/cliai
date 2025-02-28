@@ -22,18 +22,23 @@ from .style import STYLES
 class ChatInterface:
     """Interface for chatting with AI models."""
 
-    def __init__(self, model_config: ModelConfig, service: AIService):
+    def __init__(
+        self, model_config: ModelConfig, service: AIService, new_conversation: bool = False
+    ):
         """Initialize the chat interface.
 
         Args:
             model_config: Configuration for the model
             service: Service for communicating with the AI model
+            new_conversation: Whether to start a new conversation regardless of history
         """
         self.model_config = model_config
         self.service = service
         self.console = Console()
         self.messages: list[Message] = []
         self.history_file = get_history_file()
+        self.new_conversation = new_conversation
+        self.show_user_messages = False  # Don't show user message panels for new messages
 
         # Add default system message
         self.messages.append(
@@ -43,8 +48,9 @@ class ChatInterface:
             )
         )
 
-        # Load conversation history if it exists
-        self._load_history()
+        # Load conversation history if it exists and not starting a new conversation
+        if not new_conversation:
+            self._load_history()
 
     def _load_history(self) -> None:
         """Load conversation history from file if it exists."""
@@ -139,6 +145,7 @@ class ChatInterface:
             if message.role == Role.SYSTEM:
                 continue
 
+            # Always show history messages
             self._display_message(message)
 
     def _display_message(self, message: Message) -> None:
@@ -177,9 +184,12 @@ class ChatInterface:
             Panel.fit(
                 f"Chat with {self.model_config.name}",
                 style=STYLES["title"],
-                subtitle=self.model_config.description,
             )
         )
+
+        # Inform if continuing a previous conversation
+        if not self.new_conversation:
+            self.console.print("Continuing previous conversation.", style=STYLES["info"])
 
         self.console.print("Type '/help' for commands, or '/exit' to quit.", style=STYLES["info"])
         self.console.print()
@@ -191,8 +201,17 @@ class ChatInterface:
         # Main chat loop
         try:
             while True:
-                # Get user input
-                user_input = self.console.input("[bold purple]You:[/bold purple] ")
+                # Get user input - use console.input() which shows the prompt but not the entered text
+                # then show it formatted in the panel
+                self.console.print("[bold purple]>[/bold purple] ", end="")
+                user_input = input()
+
+                # Skip empty inputs
+                if not user_input.strip():
+                    continue
+
+                # Print a newline for visual separation
+                self.console.print()
 
                 # Handle commands
                 if user_input.startswith("/"):
@@ -215,7 +234,8 @@ class ChatInterface:
 
                     elif command == "/system":
                         # Edit the system prompt
-                        new_prompt = self.console.input("Enter new system prompt: ")
+                        self.console.print("Enter new system prompt: ", end="")
+                        new_prompt = input()
                         if new_prompt:
                             # Replace existing system messages
                             self.messages = [m for m in self.messages if m.role != Role.SYSTEM]
@@ -230,18 +250,29 @@ class ChatInterface:
                 # Add user message to conversation
                 user_message = Message(role=Role.USER, content=user_input)
                 self.messages.append(user_message)
-                self._display_message(user_message)
+
+                # Skip displaying the user message panel since they already saw what they typed
+                # Just add a small gap for visual separation
+                self.console.print()
 
                 # Get response from the model
                 try:
                     # Create a spinner while waiting for the response
-                    spinner = Spinner("dots", text=f"[bold]{self.model_config.name} is thinking...")
+                    spinner = Spinner("dots", text=f"Thinking...")
 
                     # Placeholder for the assistant's message
                     assistant_message = Message(role=Role.ASSISTANT, content="")
 
+                    first_chunk_received = False
+                    panel = Panel(
+                        Markdown(""),
+                        title=f"{self.model_config.name}",
+                        title_align="left",
+                        border_style=STYLES["assistant_name"],
+                    )
+
                     # Stream the response
-                    with Live(spinner, refresh_per_second=10):
+                    with Live(spinner, refresh_per_second=10) as live:
                         response = await self.service.generate_response(self.messages, stream=True)
 
                         # Check if we got a streaming response or a complete one
@@ -249,6 +280,17 @@ class ChatInterface:
                             # We got a complete response
                             content_text = response
                             assistant_message.content = content_text
+                            # Replace spinner with the model's response
+                            style = STYLES["assistant_name"]
+                            title = f"{self.model_config.name}"
+                            panel = Panel(
+                                Markdown(content_text),
+                                title=title,
+                                title_align="left",
+                                border_style=style,
+                            )
+                            live.update(panel)
+                            yield panel
                         else:
                             # We got a streaming response
                             content_text = ""
@@ -257,17 +299,21 @@ class ChatInterface:
                                 assistant_message.content = content_text
 
                                 # Update the live display with the current content
-                                title = f"{self.model_config.name}"
                                 style = STYLES["assistant_name"]
-                                yield Panel(
+                                title = f"{self.model_config.name}"
+
+                                # Once we start receiving content, replace the spinner
+                                if not first_chunk_received and content_text.strip():
+                                    first_chunk_received = True
+
+                                panel = Panel(
                                     Markdown(content_text),
                                     title=title,
                                     title_align="left",
                                     border_style=style,
                                 )
-
-                    # Make sure the final message is displayed
-                    self._display_message(assistant_message)
+                                live.update(panel)
+                                yield panel
 
                     # Add the complete assistant message to conversation
                     self.messages.append(assistant_message)
@@ -291,6 +337,10 @@ class ChatInterface:
         - `/clear` - Clear the conversation history
         - `/system` - Update the system prompt
         - `/help` - Show this help message
+        
+        # Tips
+        
+        - Use `cliai chat --continue` or `cliai chat -c` to continue the previous conversation
         """
 
         self.console.print(Markdown(help_text))

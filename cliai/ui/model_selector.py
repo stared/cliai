@@ -19,7 +19,7 @@ from .style import STYLES, COLORS
 
 def _create_model_table() -> Table:
     """Create a Rich table for displaying models."""
-    table = Table(title="Available Models", expand=True)
+    table = Table(expand=True)
 
     table.add_column("#", style="dim")
     table.add_column("Model", style="bold")
