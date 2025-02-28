@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cliai"
+version = "0.1.0"
+description = "CLI interface for chatting with various AI models"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+    "typer[all]>=0.9.0",
+    "rich>=13.6.0",
+    "openai>=1.12.0",
+    "anthropic>=0.8.0",
+    "google-generativeai>=0.3.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+cliai = "cliai.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cliai"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true 
