@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Generator, AsyncGenerator, Union
+import os
 
 from rich.console import Console
 from rich.live import Live
@@ -218,6 +219,13 @@ class ChatInterface:
                     command = user_input.lower().strip()
 
                     if command == "/exit" or command == "/quit":
+                        # Save the chat to markdown
+                        if any(m.role != Role.SYSTEM for m in self.messages):
+                            saved_path = self._save_to_markdown()
+                            self.console.print(
+                                f"Chat saved to: {saved_path}", style=STYLES["success"]
+                            )
+
                         self.console.print("Exiting chat.", style=STYLES["info"])
                         break
 
@@ -333,7 +341,7 @@ class ChatInterface:
         help_text = """
         # Commands
         
-        - `/exit` or `/quit` - Exit the chat
+        - `/exit` or `/quit` - Exit the chat (saves conversation to markdown)
         - `/clear` - Clear the conversation history
         - `/system` - Update the system prompt
         - `/help` - Show this help message
@@ -341,6 +349,48 @@ class ChatInterface:
         # Tips
         
         - Use `cliai chat --continue` or `cliai chat -c` to continue the previous conversation
+        - Conversations are automatically saved as markdown files when you exit
         """
 
         self.console.print(Markdown(help_text))
+
+    def _save_to_markdown(self) -> str:
+        """Save the conversation to a markdown file.
+
+        Returns:
+            Path to the saved markdown file
+        """
+        # Create a timestamp for the filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name = self.model_config.name.replace(" ", "_")
+        filename = f"{timestamp}_{model_name}_chat.md"
+
+        # Content for the markdown file
+        content = f"# Chat with {self.model_config.name}\n\n"
+        content += f"*Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+        content += f"*Model: {self.model_config.name} ({self.model_config.provider.value})*\n\n"
+        content += "---\n\n"
+
+        # Add system message first
+        system_msgs = [m for m in self.messages if m.role == Role.SYSTEM]
+        if system_msgs:
+            content += "### System Prompt\n\n"
+            content += f"```\n{system_msgs[0].content}\n```\n\n"
+            content += "---\n\n"
+
+        # Add conversation messages (skip system messages)
+        for message in self.messages:
+            if message.role == Role.SYSTEM:
+                continue
+            elif message.role == Role.USER:
+                content += f"### 🧑 You\n\n{message.content}\n\n"
+            elif message.role == Role.ASSISTANT:
+                content += f"### 🤖 {self.model_config.name}\n\n{message.content}\n\n"
+
+            content += "---\n\n"
+
+        # Save to current working directory
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        return os.path.abspath(filename)
